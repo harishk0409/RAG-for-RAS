@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bgDark: #0a0b0e;
+  --color-bgSurface: rgba(18, 20, 26, 0.88);
+  --color-borderDark: rgba(255, 255, 255, 0.08);
+
+  --color-crimson-400: #f87171;
+  --color-crimson-500: #ef4444;
+  --color-crimson-600: #dc2626;
+  --color-crimson-700: #b91c1c;
+  --color-crimson-800: #991b1b;
+  --color-crimson-900: #7f1d1d;
+
+  --color-maroon-700: #780020;
+  --color-maroon-800: #660018;
+  --color-maroon-850: #5b0e1e;
+  --color-maroon-900: #4a0413;
+  --color-maroon-950: #380710;
+
+  --color-darkred-700: #991b1b;
+  --color-darkred-800: #7f1d1d;
+  --color-darkred-900: #450a0a;
+
+  --color-gold-300: #fde047;
+  --color-gold-400: #fbbf24;
+  --color-gold-500: #f59e0b;
+  --color-gold-600: #d97706;
+  --color-gold-700: #ffc72c;
+
+  --font-headline: 'Space Grotesk', sans-serif;
+  --font-display: 'Orbitron', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+:root {
+  --accent: #ef4444;
+  --maroon: #660018;
+  --darkred: #991b1b;
+  --gold: #f59e0b;
+  --gold-yellow: #ffc72c;
+}
+
+/* Custom Scrollbars */
+.custom-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: rgba(10, 11, 14, 0.4);
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: #ef4444;
+}
+
+/* Blueprint Cadastral Grid Layer */
+.blueprint-grid {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+/* Laser horizontal scanline */
+.laser-scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, rgba(153, 27, 27, 0.15) 15%, rgba(255, 199, 44, 0.5) 50%, rgba(220, 38, 38, 0.2) 85%, transparent);
+  box-shadow: 0 0 12px rgba(255, 199, 44, 0.4);
+  animation: laserSweep 11s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes laserSweep {
+  0% { top: -10px; opacity: 0; }
+  8% { opacity: 0.75; }
+  92% { opacity: 0.75; }
+  100% { top: 102%; opacity: 0; }
+}
+
+/* Ambient pulse in deep Maroon and Dark Red */
+.ambient-lab-glow {
+  animation: labBreath 14s ease-in-out infinite alternate;
+}
+
+@keyframes labBreath {
+  0% { opacity: 0.25; transform: scale(0.96); }
+  100% { opacity: 0.45; transform: scale(1.05); }
+}
+
+/* Hexapod cursor suppression when active */
+.hexapod-cursor-enabled,
+.hexapod-cursor-enabled * {
+  cursor: none !important;
+}
+

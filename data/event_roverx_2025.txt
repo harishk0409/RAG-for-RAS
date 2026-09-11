@@ -1,0 +1,13 @@
+Event: RoverX — The Hardware Workshop 2025
+Date: 31 October – 2 November 2025
+Context: Part of TechnoVIT, VIT Chennai's national-level technology festival
+
+RoverX was a hands-on hardware workshop organised by the IEEE RAS VIT Chennai
+Student Chapter, teaching participants to build DIY rovers and robotic systems
+using the ESP32 microcontroller platform. It was framed as an opportunity for
+students to engage in creative, real-world problem-solving in robotics and
+automation. The chapter invited sponsorship from companies working in robotics,
+automation, AI, AGVs, AMRs, and humanoid systems, including outreach to partners
+such as Zerlon Semi Pvt. Ltd., a Coimbatore-based semiconductor training institute.
+
+(Source: IEEE RAS Student Chapter VIT Chennai, LinkedIn page)

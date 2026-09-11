@@ -1,0 +1,6 @@
+{
+  "name": "RAG for RAS",
+  "description": "Autonomous systems intelligence platform with hybrid vector retrieval, telemetry synthesis, and hardware schematics grounding.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
