@@ -2,13 +2,22 @@ import React, { useEffect, useRef } from 'react';
 
 interface HexapodCursorLayerProps {
   enabled: boolean;
+  theme: 'light' | 'dark';
 }
 
-export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled }) => {
+export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled, theme }) => {
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
+
+    // Darker, higher-contrast tones in light mode — pure black instead of
+    // a soft near-black, which was reading as gray against a white page.
+    const bodyColor = theme === 'light' ? '#000000' : '#FFFFFF';
+    const bodyRgb = theme === 'light' ? '0, 0, 0' : '255, 255, 255';
+    const contrastColor = theme === 'light' ? '#FFFFFF' : '#000000';
+    const midTone = theme === 'light' ? '#333333' : '#CCCCCC';
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -32,7 +41,6 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
     resize();
     window.addEventListener('resize', resize);
 
-    // Instantaneous Pointer State
     let mouseX = width * 0.5;
     let mouseY = height * 0.5;
     let lastMouseX = mouseX;
@@ -41,7 +49,6 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
     let isHovered = false;
     let isClicking = false;
 
-    // Kinematics
     let bodyHeading = -Math.PI / 2;
     let gaitPhase = 0;
     let idleTime = 0;
@@ -49,12 +56,12 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
     let breathCycle = 0;
 
     const legConfigs = [
-      { id: 0, group: 1, side: -1, rootX: -9, rootY: -10, restX: -26, restY: -22, L1: 15, L2: 17 }, // FL
-      { id: 1, group: 2, side: -1, rootX: -13, rootY: 0, restX: -32, restY: 0, L1: 15, L2: 17 }, // ML
-      { id: 2, group: 1, side: -1, rootX: -9, rootY: 10, restX: -26, restY: 22, L1: 15, L2: 17 }, // RL
-      { id: 3, group: 2, side: 1, rootX: 9, rootY: -10, restX: 26, restY: -22, L1: 15, L2: 17 }, // FR
-      { id: 4, group: 1, side: 1, rootX: 13, rootY: 0, restX: 32, restY: 0, L1: 15, L2: 17 }, // MR
-      { id: 5, group: 2, side: 1, rootX: 9, rootY: 10, restX: 26, restY: 22, L1: 15, L2: 17 }, // RR
+      { id: 0, group: 1, side: -1, rootX: -9, rootY: -10, restX: -26, restY: -22, L1: 15, L2: 17 },
+      { id: 1, group: 2, side: -1, rootX: -13, rootY: 0, restX: -32, restY: 0, L1: 15, L2: 17 },
+      { id: 2, group: 1, side: -1, rootX: -9, rootY: 10, restX: -26, restY: 22, L1: 15, L2: 17 },
+      { id: 3, group: 2, side: 1, rootX: 9, rootY: -10, restX: 26, restY: -22, L1: 15, L2: 17 },
+      { id: 4, group: 1, side: 1, rootX: 13, rootY: 0, restX: 32, restY: 0, L1: 15, L2: 17 },
+      { id: 5, group: 2, side: 1, rootX: 9, rootY: 10, restX: 26, restY: 22, L1: 15, L2: 17 },
     ];
 
     const legStates = legConfigs.map((cfg) => ({
@@ -62,6 +69,11 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       currentX: cfg.restX,
       currentY: cfg.restY,
       lift: 0,
+      // World-space (page) coordinates of this leg's foot, recomputed every
+      // frame. Used so a click can be attributed to whatever is under a
+      // leg tip, not just the real mouse position.
+      worldFootX: 0,
+      worldFootY: 0,
     }));
 
     const onMouseMove = (e: MouseEvent) => {
@@ -69,7 +81,7 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       mouseY = e.clientY;
       isVisible = true;
     };
-    
+
     const onMouseLeave = () => {
       isVisible = false;
     };
@@ -78,10 +90,16 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
     };
 
     const interactiveSelector = 'a, button, input, textarea, select, [role="button"], [onclick]';
+    const textSelector = '.copyable-text, .copyable-text *';
+    let overText = false;
+
     const onMouseOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest && target.closest(interactiveSelector)) {
         isHovered = true;
+      }
+      if (target && target.closest && target.closest(textSelector)) {
+        overText = true;
       }
     };
     const onMouseOut = (e: MouseEvent) => {
@@ -89,12 +107,19 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       if (target && target.closest && target.closest(interactiveSelector)) {
         isHovered = false;
       }
+      if (target && target.closest && target.closest(textSelector)) {
+        overText = false;
+      }
     };
     let tapActive = false;
     let tapStart = 0;
     const TAP_LEG_ID = 3;
     const TAP_DURATION = 220;
     const TAP_LIFT = 9;
+
+    // Guards against the synthetic .click() we dispatch below from
+    // re-triggering this same listener and looping forever.
+    let isDispatchingSyntheticClick = false;
 
     const onMouseDown = () => {
       isClicking = true;
@@ -105,6 +130,30 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       isClicking = false;
     };
 
+    // If any leg's foot tip is currently resting over an interactive
+    // element, treat that as clicked too — even if it's not where the
+    // real (invisible) mouse pointer happens to be.
+    const onDocumentClick = (e: MouseEvent) => {
+      if (isDispatchingSyntheticClick) return;
+
+      const alreadyHitInteractive = (e.target as HTMLElement | null)?.closest?.(interactiveSelector);
+      const hitElements = new Set<HTMLElement>();
+
+      legStates.forEach((leg) => {
+        const el = document.elementFromPoint(leg.worldFootX, leg.worldFootY) as HTMLElement | null;
+        const interactive = el?.closest?.(interactiveSelector) as HTMLElement | null;
+        if (interactive && interactive !== alreadyHitInteractive) {
+          hitElements.add(interactive);
+        }
+      });
+
+      if (hitElements.size > 0) {
+        isDispatchingSyntheticClick = true;
+        hitElements.forEach((el) => el.click());
+        isDispatchingSyntheticClick = false;
+      }
+    };
+
     window.addEventListener('mousemove', onMouseMove, { passive: true });
     document.addEventListener('mouseleave', onMouseLeave);
     document.addEventListener('mouseenter', onMouseEnter);
@@ -112,6 +161,7 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
     document.addEventListener('mouseout', onMouseOut, { passive: true });
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('click', onDocumentClick);
 
     function solveLocalIK(
       rx: number,
@@ -160,7 +210,8 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
 
       ctx.clearRect(0, 0, width, height);
 
-      cursorAlpha += ((isVisible ? 1 : 0) - cursorAlpha) * 0.2;
+      const shouldShow = isVisible && !overText;
+      cursorAlpha += ((shouldShow ? 1 : 0) - cursorAlpha) * 0.2;
       if (cursorAlpha < 0.01) {
         animId = requestAnimationFrame(renderHexapodCursor);
         return;
@@ -223,7 +274,7 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
             leg.currentX = restTargetX;
             leg.currentY = restTargetY - stanceLead;
           }
-                } else {
+        } else {
           const settleLerp = 0.22;
           leg.currentX += (restTargetX - leg.currentX) * settleLerp;
           leg.currentY += (restTargetY + breathOffset - leg.currentY) * settleLerp;
@@ -242,16 +293,26 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
         }
       }
 
-      
-      
+      const BASE_SCALE = 0.55;
+      const clickScale = (1.0 + hoverFlare * 0.08) * BASE_SCALE;
+
+      // Recompute each leg's real page (world) coordinates from its local
+      // position, applying the same rotate + scale + translate the canvas
+      // itself uses, so elementFromPoint checks the right spot.
+      const cosH = Math.cos(bodyHeading);
+      const sinH = Math.sin(bodyHeading);
+      legStates.forEach((leg) => {
+        const localX = leg.currentX;
+        const localY = leg.currentY - leg.lift;
+        leg.worldFootX = mouseX + clickScale * (cosH * localX - sinH * localY);
+        leg.worldFootY = mouseY + clickScale * (sinH * localX + cosH * localY);
+      });
+
       // Render
       ctx.save();
       ctx.globalAlpha = cursorAlpha;
       ctx.translate(mouseX, mouseY);
       ctx.rotate(bodyHeading);
-
-      const BASE_SCALE = 0.55;
-      const clickScale = (1.0 + hoverFlare * 0.08) * BASE_SCALE;
       ctx.scale(clickScale, clickScale);
 
       // Contact shadow
@@ -278,7 +339,7 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       });
       ctx.restore();
 
-      // Mechanical Legs (Pure White + Silver)
+      // Mechanical Legs
       legStates.forEach((leg) => {
         const cfg = leg.cfg;
         const ik = solveLocalIK(
@@ -291,14 +352,13 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
           cfg.side
         );
 
-        // Femur
         ctx.beginPath();
         ctx.moveTo(cfg.rootX, cfg.rootY);
         ctx.lineTo(ik.kneeX, ik.kneeY);
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = bodyColor;
         ctx.lineWidth = 2.8;
         ctx.lineCap = 'round';
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+        ctx.shadowColor = `rgba(${bodyRgb}, 0.5)`;
         ctx.shadowBlur = 4;
         ctx.stroke();
         ctx.shadowBlur = 0;
@@ -306,57 +366,53 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
         ctx.beginPath();
         ctx.moveTo(cfg.rootX, cfg.rootY);
         ctx.lineTo(ik.kneeX, ik.kneeY);
-        ctx.strokeStyle = '#d4d4d8';
+        ctx.strokeStyle = midTone;
         ctx.lineWidth = 1.0;
         ctx.stroke();
 
-        // Hip Pivot
         ctx.beginPath();
         ctx.arc(cfg.rootX, cfg.rootY, 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = bodyColor;
         ctx.fill();
-        ctx.strokeStyle = '#a1a1aa';
+        ctx.strokeStyle = midTone;
         ctx.lineWidth = 0.8;
         ctx.stroke();
 
-        // Tibia
         ctx.beginPath();
         ctx.moveTo(ik.kneeX, ik.kneeY);
         ctx.lineTo(ik.footX, ik.footY);
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = bodyColor;
         ctx.lineWidth = 1.8;
         ctx.lineCap = 'round';
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.6)';
+        ctx.shadowColor = `rgba(${bodyRgb}, 0.6)`;
         ctx.shadowBlur = 3;
         ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Knee Joint
         ctx.beginPath();
         ctx.arc(ik.kneeX, ik.kneeY, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#18181b';
+        ctx.fillStyle = contrastColor;
         ctx.fill();
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = bodyColor;
         ctx.lineWidth = 1.2;
         ctx.stroke();
 
         ctx.beginPath();
         ctx.arc(ik.kneeX, ik.kneeY, 1.4, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = '#ffffff';
+        ctx.fillStyle = bodyColor;
+        ctx.shadowColor = bodyColor;
         ctx.shadowBlur = isHovered ? 8 : 4;
         ctx.fill();
         ctx.shadowBlur = 0;
 
-        // Foot tip
         ctx.beginPath();
         ctx.arc(ik.footX, ik.footY, 2.0, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+        ctx.fillStyle = bodyColor;
+        ctx.shadowColor = `rgba(${bodyRgb}, 0.8)`;
         ctx.shadowBlur = 5;
         ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = bodyColor;
         ctx.lineWidth = 0.6;
         ctx.stroke();
       });
@@ -364,12 +420,12 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       // Abdomen Plate
       ctx.beginPath();
       ctx.ellipse(0, 11, 8.5, 11, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(255, 255, 255, 0.4)';
+      ctx.fillStyle = bodyColor;
+      ctx.shadowColor = `rgba(${bodyRgb}, 0.4)`;
       ctx.shadowBlur = 6;
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#e4e4e7';
+      ctx.strokeStyle = midTone;
       ctx.lineWidth = 1.0;
       ctx.stroke();
 
@@ -378,12 +434,12 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
         0.6 + 0.4 * Math.sin(breathCycle * 2.0) + (isHovered ? 0.3 : 0);
       ctx.beginPath();
       ctx.ellipse(0, 11, 4.2, 6.2, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(24, 24, 27, 0.85)';
+      ctx.fillStyle = theme === 'light' ? 'rgba(240, 240, 240, 0.85)' : 'rgba(31, 31, 31, 0.85)';
       ctx.fill();
       ctx.beginPath();
       ctx.ellipse(0, 11, 2.4, 3.8, 0, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(1, corePulse)})`;
-      ctx.shadowColor = '#ffffff';
+      ctx.fillStyle = `rgba(${bodyRgb}, ${Math.min(1, corePulse)})`;
+      ctx.shadowColor = bodyColor;
       ctx.shadowBlur = 8;
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -391,12 +447,12 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       // Cephalothorax Carapace
       ctx.beginPath();
       ctx.ellipse(0, -3.5, 8.8, 10, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+      ctx.fillStyle = bodyColor;
+      ctx.shadowColor = `rgba(${bodyRgb}, 0.5)`;
       ctx.shadowBlur = 8;
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#f4f4f5';
+      ctx.strokeStyle = midTone;
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
@@ -406,31 +462,31 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       ctx.lineTo(-2, -1);
       ctx.moveTo(5, -3);
       ctx.lineTo(2, -1);
-      ctx.strokeStyle = '#27272a';
+      ctx.strokeStyle = contrastColor;
       ctx.lineWidth = 1.0;
       ctx.stroke();
 
       // Optical Sensors
       const eyeGlow = isHovered ? 12 : 6;
-      ctx.shadowColor = '#ffffff';
+      ctx.shadowColor = bodyColor;
       ctx.shadowBlur = eyeGlow;
 
       ctx.beginPath();
       ctx.arc(-3.6, -9.8, 2.0, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = bodyColor;
       ctx.fill();
       ctx.beginPath();
       ctx.arc(-3.6, -9.8, 0.8, 0, Math.PI * 2);
-      ctx.fillStyle = '#09090b';
+      ctx.fillStyle = contrastColor;
       ctx.fill();
 
       ctx.beginPath();
       ctx.arc(3.6, -9.8, 2.0, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = bodyColor;
       ctx.fill();
       ctx.beginPath();
       ctx.arc(3.6, -9.8, 0.8, 0, Math.PI * 2);
-      ctx.fillStyle = '#09090b';
+      ctx.fillStyle = contrastColor;
       ctx.fill();
       ctx.shadowBlur = 0;
 
@@ -440,7 +496,7 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       ctx.lineTo(-4.8, -16.5);
       ctx.moveTo(2.5, -12);
       ctx.lineTo(4.8, -16.5);
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = bodyColor;
       ctx.lineWidth = 1.2;
       ctx.lineCap = 'round';
       ctx.stroke();
@@ -448,8 +504,8 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       // Central crosshair & reticle
       ctx.beginPath();
       ctx.arc(0, 0, 2.2, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#ffffff';
+      ctx.fillStyle = bodyColor;
+      ctx.shadowColor = bodyColor;
       ctx.shadowBlur = isHovered ? 10 : 5;
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -457,8 +513,8 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       ctx.beginPath();
       ctx.arc(0, 0, 6.2, 0, Math.PI * 2);
       ctx.strokeStyle = isHovered
-        ? 'rgba(255, 255, 255, 0.95)'
-        : 'rgba(255, 255, 255, 0.55)';
+        ? `rgba(${bodyRgb}, 0.95)`
+        : `rgba(${bodyRgb}, 0.55)`;
       ctx.lineWidth = 1.0;
       ctx.stroke();
 
@@ -471,7 +527,7 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       ctx.lineTo(-7, 0);
       ctx.moveTo(7, 0);
       ctx.lineTo(9, 0);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.strokeStyle = `rgba(${bodyRgb}, 0.8)`;
       ctx.lineWidth = 0.8;
       ctx.stroke();
 
@@ -492,8 +548,9 @@ export const HexapodCursorLayer: React.FC<HexapodCursorLayerProps> = ({ enabled 
       document.removeEventListener('mouseout', onMouseOut);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('click', onDocumentClick);
     };
-  }, [enabled]);
+  }, [enabled, theme]);
 
   if (!enabled) return null;
 

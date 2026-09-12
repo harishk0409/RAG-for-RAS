@@ -1,4 +1,4 @@
-export type RagState = 'idle' | 'search' | 'response';
+export type RagState = 'idle' | 'search' | 'retrieve' | 'response';
 
 export interface RagResponseData {
   answer: string;
@@ -10,18 +10,18 @@ export interface ConversationTurn {
   query: string;
   answer: string;
   sources: string[];
+  animate?: boolean;
 }
 
 export interface QueryHistoryItem {
   id: string;
   title: string;
-  query: string;
-  responseData: RagResponseData;
+  turns: ConversationTurn[];
   dateGroup: 'Today' | 'Yesterday';
 }
 
 export interface VisualSettings {
   palette: 'maroon-gold' | 'cyber-amber' | 'titanium-white';
-  hexapodCursorEnabled: boolean;
-  scanlineEnabled: boolean;
+  cursorType: 'normal' | 'bot';
+  theme: 'light' | 'dark';
 }

@@ -19,8 +19,10 @@ Deploy (Render / Railway, free tier):
     4. Add GROQ_API_KEY as an environment variable in the host's dashboard
     5. You'll get a public URL like https://your-app.onrender.com
 """
-
+import json
+import secrets
 import os
+import re
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -34,10 +36,10 @@ from groq import Groq
 DB_DIR = "chroma_db"
 COLLECTION_NAME = "ieee_ras_docs"
 LLM_MODEL = "openai/gpt-oss-20b"
-TOP_K = 4
+TOP_K = 8
 CHAPTER_NAME = "IEEE RAS VIT Chennai"
 CHAPTER_URL = "https://edu.ieee.org/in-rasvitcc/"
-
+SHARES_FILE = "shares.json"
 app = FastAPI(title="RAG for RAS API")
 
 app.add_middleware(
@@ -70,10 +72,23 @@ class ChatResponse(BaseModel):
 
 
 def retrieve_context(query: str, k: int = TOP_K):
+    print("Collection count:", collection.count())
     results = collection.query(query_texts=[query], n_results=k)
     chunks = results["documents"][0]
     sources = [meta["source"] for meta in results["metadatas"][0]]
+    print("Retrieved chunks:", chunks)
+    print("Sources:", sources)
     return chunks, sources
+
+
+def clean_markdown(text: str) -> str:
+    """Strip common markdown formatting so plain-text frontends render cleanly."""
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)   # **bold** -> bold
+    text = re.sub(r'\*(.*?)\*', r'\1', text)       # *italic* -> italic
+    text = re.sub(r'`(.*?)`', r'\1', text)         # `code` -> code
+    text = re.sub(r'#{1,6}\s*', '', text)          # # Heading -> Heading
+    text = text.replace('<br>', '\n').replace('<br/>', '\n').replace('<br />', '\n')
+    return text.strip()
 
 
 def generate_answer(query: str, chunks: list[str]) -> str:
@@ -82,6 +97,9 @@ def generate_answer(query: str, chunks: list[str]) -> str:
         f"You are the official {CHAPTER_NAME} assistant. "
         "Answer the user's question using ONLY the context provided below. "
         "Be friendly, concise, and specific (mention event names, dates, numbers when relevant). "
+        "Respond in plain text only. Do not use markdown formatting such as ** for bold, "
+        "# for headings, backticks, or | for tables. Do not use HTML tags like <br>. "
+        "Use plain sentences, natural line breaks, and dashes (-) for lists instead. "
         "If the answer isn't in the context, say you don't have that information yet, "
         f"and suggest checking the official page: {CHAPTER_URL}\n\n"
         f"CONTEXT:\n{context_text}"
@@ -95,7 +113,8 @@ def generate_answer(query: str, chunks: list[str]) -> str:
         temperature=0.3,
         max_tokens=500,
     )
-    return response.choices[0].message.content
+    answer = response.choices[0].message.content
+    return clean_markdown(answer)
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -103,13 +122,45 @@ def chat(req: ChatRequest):
     chunks, sources = retrieve_context(req.message)
     answer = generate_answer(req.message, chunks)
     return ChatResponse(answer=answer, sources=sources)
+def load_shares():
+    if os.path.exists(SHARES_FILE):
+        with open(SHARES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
+
+def save_shares(shares):
+    with open(SHARES_FILE, "w", encoding="utf-8") as f:
+        json.dump(shares, f)
+
+
+class ShareRequest(BaseModel):
+    turns: list[dict]
+
+
+class ShareResponse(BaseModel):
+    id: str
+
+
+@app.post("/api/share", response_model=ShareResponse)
+def create_share(req: ShareRequest):
+    shares = load_shares()
+    share_id = secrets.token_urlsafe(8)
+    shares[share_id] = req.turns
+    save_shares(shares)
+    return ShareResponse(id=share_id)
+
+
+@app.get("/api/share/{share_id}")
+def get_share(share_id: str):
+    shares = load_shares()
+    if share_id not in shares:
+        return {"error": "not found"}
+    return {"turns": shares[share_id]}
 
 # ---------- Serve the frontend ----------
 # Place your built index.html (+ any assets) inside a "static" folder next to this file.
+# Mounting the whole folder (not just /assets) so root-level files like the logo
+# (anything from Vite's public/ folder) are served too, not just the /assets bundle.
 if os.path.isdir("static"):
-    app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
-
-    @app.get("/")
-    def serve_index():
-        return FileResponse("static/index.html")
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")

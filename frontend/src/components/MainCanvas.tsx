@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { RagState, ConversationTurn } from '../types';
 import { CheckCircle, ArrowUp } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface MainCanvasProps {
   ragState: RagState;
@@ -18,7 +20,6 @@ function TypingAnswer({ text, msPerWord = 45 }: { text: string; msPerWord?: numb
   const words = text.split(' ');
 
   useEffect(() => {
-    console.log('[TypingAnswer] mounted, text length:', words.length, 'words');
     setShownCount(0);
     let raf: number;
     let last = performance.now();
@@ -35,8 +36,6 @@ function TypingAnswer({ text, msPerWord = 45 }: { text: string; msPerWord?: numb
       setShownCount(idx);
       if (idx < words.length) {
         raf = requestAnimationFrame(step);
-      } else {
-        console.log('[TypingAnswer] finished');
       }
     };
 
@@ -45,10 +44,11 @@ function TypingAnswer({ text, msPerWord = 45 }: { text: string; msPerWord?: numb
   }, [text]);
 
   const isTyping = shownCount < words.length;
+  const partialText = words.slice(0, shownCount).join(' ');
 
   return (
-    <p>
-      {words.slice(0, shownCount).join(' ')}
+    <div>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{partialText}</ReactMarkdown>
       {isTyping && (
         <span
           style={{
@@ -57,12 +57,12 @@ function TypingAnswer({ text, msPerWord = 45 }: { text: string; msPerWord?: numb
             height: 14,
             marginLeft: 2,
             verticalAlign: 'middle',
-            background: '#ffc72c',
+            background: '#FFFFFF',
           }}
           className="animate-pulse"
         />
       )}
-    </p>
+    </div>
   );
 }
 
@@ -101,17 +101,17 @@ export const MainCanvas: React.FC<MainCanvasProps> = ({
       >
         {conversation.length === 0 && !isLoading && (
           <div className="flex flex-col justify-center items-center text-center px-4 py-16 sm:py-20 max-w-2xl mx-auto space-y-4">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-maroon-950/80 text-red-200 font-mono text-xs backdrop-blur-sm shadow-md">
-              <span className="w-2 h-2 rounded-full bg-[#ffc72c] animate-pulse" />
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#000000] text-[#CCCCCC] font-mono text-xs backdrop-blur-sm shadow-md">
+              <span className="w-2 h-2 rounded-full bg-[#FFFFFF] animate-pulse" />
               <span>IEEE RAS Assistant</span>
             </div>
-            <h1 className="text-3xl sm:text-5xl font-headline font-bold tracking-tight text-white leading-tight">
+            <h1 className="text-3xl sm:text-5xl font-headline font-bold tracking-tight text-[#EDEDED] leading-tight">
               Ask me about{' '}
-              <span className="bg-gradient-to-r from-red-500 via-[#ffc72c] to-amber-300 bg-clip-text text-transparent font-bold">
+              <span className="text-[#FFFFFF] font-bold">
                 IEEE RAS
               </span>
             </h1>
-            <p className="text-slate-400 text-xs sm:text-sm max-w-lg leading-relaxed font-mono">
+            <p className="text-[#CCCCCC] text-xs sm:text-sm max-w-lg leading-relaxed font-mono">
               I've read through our event recaps, workshops, and hackathons — ask away.
             </p>
           </div>
@@ -120,31 +120,31 @@ export const MainCanvas: React.FC<MainCanvasProps> = ({
         {conversation.map((turn, idx) => (
           <div key={turn.id} className="space-y-3">
             <div className="flex justify-end">
-              <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-sm bg-maroon-900/70 text-white text-sm">
+              <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-sm bg-[#000000] text-[#EDEDED] text-sm copyable-text">
                 {turn.query}
               </div>
             </div>
 
-            <div className="p-5 rounded-3xl bg-[#12141c]/95 backdrop-blur-xl shadow-2xl space-y-4">
+            <div className="p-5 rounded-3xl bg-[#000000] backdrop-blur-xl shadow-2xl space-y-4">
               <div className="flex items-center justify-between pb-3">
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-[#ffc72c]" />
-                  <span className="font-headline font-semibold text-sm text-white">Answer</span>
+                  <CheckCircle className="w-5 h-5 text-[#FFFFFF]" />
+                  <span className="font-headline font-semibold text-sm text-[#EDEDED]">Answer</span>
                 </div>
               </div>
-              <div className="text-slate-200 text-xs sm:text-sm leading-relaxed space-y-3">
-                {idx === conversation.length - 1 ? (
+              <div className="text-[#EDEDED] text-xs sm:text-sm leading-relaxed space-y-3 prose prose-invert prose-sm max-w-none prose-table:text-xs prose-th:text-[#FFFFFF] prose-td:border-[#3a3a3a] prose-th:border-[#3a3a3a] copyable-text">
+                {idx === conversation.length - 1 && turn.animate !== false ? (
                   <TypingAnswer text={turn.answer} />
                 ) : (
-                  <p>{turn.answer}</p>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.answer}</ReactMarkdown>
                 )}
                 {turn.sources.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 pt-1 text-[10.5px]">
-                    <span className="text-slate-400">Sources:</span>
+                    <span className="text-[#CCCCCC]">Sources:</span>
                     {[...new Set(turn.sources)].map((s) => (
                       <span
                         key={s}
-                        className="px-2 py-0.5 rounded bg-black/40 text-[#ffc72c] font-mono"
+                        className="px-2 py-0.5 rounded bg-[#000000] text-[#FFFFFF] font-mono"
                       >
                         📄 {s}
                       </span>
@@ -157,25 +157,25 @@ export const MainCanvas: React.FC<MainCanvasProps> = ({
         ))}
 
         {isLoading && (
-          <div className="p-3.5 rounded-2xl bg-[#111218]/90 backdrop-blur-md flex items-center gap-2.5 font-mono text-xs shadow-lg">
+          <div className="p-3.5 rounded-2xl bg-[#000000] backdrop-blur-md flex items-center gap-2.5 font-mono text-xs shadow-lg">
             <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ffc72c] opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FFFFFF] opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FFFFFF]" />
             </span>
-            <span className="text-slate-300 font-medium">Scanning event archive...</span>
+            <span className="text-[#CCCCCC] font-medium">Scanning event archive...</span>
           </div>
         )}
 
         {errorMessage && (
-          <div className="p-4 rounded-2xl bg-red-950/40 text-red-200 text-sm">
+          <div className="p-4 rounded-2xl bg-[#000000] text-[#EDEDED] text-sm">
             {errorMessage}
           </div>
         )}
       </div>
 
-      <div className="p-3 sm:p-5 bg-gradient-to-t from-[#0a0b0e] via-[#0a0b0e]/95 to-transparent relative z-20 shrink-0">
+      <div className="p-3 sm:p-5 bg-gradient-to-t from-[#000000] via-[#000000]/95 to-transparent relative z-20 shrink-0">
         <div className="max-w-4xl mx-auto">
-          <div className="rounded-3xl bg-[#13151d]/95 shadow-2xl backdrop-blur-2xl p-3 sm:p-3.5 transition-all">
+          <div className="rounded-3xl bg-[#000000] shadow-2xl backdrop-blur-2xl p-3 sm:p-3.5 transition-all">
             <textarea
               ref={inputRef}
               id="user-chat-input"
@@ -184,17 +184,17 @@ export const MainCanvas: React.FC<MainCanvasProps> = ({
               onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask about IEEE RAS events, workshops, or how to join..."
-              className="w-full bg-transparent border-0 resize-none text-sm sm:text-base text-slate-100 placeholder:text-slate-500 focus:ring-0 px-2 py-1 focus:outline-none leading-relaxed"
+              className="w-full bg-transparent border-0 resize-none text-sm sm:text-base text-[#EDEDED] placeholder:text-[#CCCCCC] focus:ring-0 px-2 py-1 focus:outline-none leading-relaxed"
             />
             <div className="flex items-center justify-end pt-2 px-1">
               <div className="flex items-center gap-3">
-                <span className="hidden sm:inline text-[11px] font-mono text-slate-500">Send ↵</span>
+                <span className="hidden sm:inline text-[11px] font-mono text-[#CCCCCC]">Send ↵</span>
                 <button
                   onClick={onSubmitQuery}
                   disabled={isLoading}
                   type="button"
                   title="Send"
-                  className="w-10 h-10 rounded-full bg-gradient-to-tr from-maroon-800 via-red-600 to-amber-500 text-white flex items-center justify-center shadow-lg shadow-maroon-950/80 hover:scale-105 active:scale-95 transition-transform disabled:opacity-40"
+                  className="w-10 h-10 rounded-full bg-[#FFFFFF] text-[#000000] flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform disabled:opacity-40"
                 >
                   <ArrowUp className="w-5 h-5" />
                 </button>

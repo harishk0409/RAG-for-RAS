@@ -1,29 +1,16 @@
 import { useRef, useEffect } from 'react';
 
-interface TelemetryMarker {
-  x: number;
-  y: number;
-  label: string;
-  blinkPhase: number;
-}
-
-interface Node {
+interface Via {
   x: number;
   y: number;
   pulsePhase: number;
 }
 
-interface Spark {
-  fromX: number; fromY: number;
-  toX: number; toY: number;
+interface Trace {
+  points: { x: number; y: number }[];
   progress: number;
   speed: number;
 }
-
-const TELEMETRY_LABELS = [
-  'REV3_CAD', 'HIVE_RTPS', 'STD_1872', 'ROS2_RTPS :: OK',
-  'CAN_OBC_HASH : 0x9AE4', 'VECTORS_ACTIVE : 482,190', 'PRECISION_THR : 0.820',
-];
 
 export function LiveRagBackground() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -41,142 +28,144 @@ export function LiveRagBackground() {
     resize();
     window.addEventListener('resize', resize);
 
-    // scattered telemetry markers, mostly at edges, avoiding center
-    const markers: TelemetryMarker[] = TELEMETRY_LABELS.map((label, i) => {
-      const edge = i % 4;
-      let x, y;
-      if (edge === 0) { x = Math.random() * canvas.width * 0.25; y = Math.random() * canvas.height; }
-      else if (edge === 1) { x = canvas.width * 0.75 + Math.random() * canvas.width * 0.25; y = Math.random() * canvas.height; }
-      else if (edge === 2) { x = Math.random() * canvas.width; y = Math.random() * canvas.height * 0.2; }
-      else { x = Math.random() * canvas.width; y = canvas.height * 0.8 + Math.random() * canvas.height * 0.2; }
-      return { x, y, label, blinkPhase: Math.random() * Math.PI * 2 };
-    });
+    // Cursor tracking, eased for a smooth, non-mechanical response
+    let targetMouseX = canvas.width / 2;
+    let targetMouseY = canvas.height / 2;
+    let mouseX = targetMouseX;
+    let mouseY = targetMouseY;
 
-    const nodes: Node[] = Array.from({ length: 16 }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
+    const onMouseMove = (e: MouseEvent) => {
+      targetMouseX = e.clientX;
+      targetMouseY = e.clientY;
+    };
+    window.addEventListener('mousemove', onMouseMove, { passive: true });
+
+    const GRID = 64;
+
+    // "Vias" — small PCB-style connection points, snapped to the grid
+    const vias: Via[] = Array.from({ length: 22 }, () => ({
+      x: Math.round((Math.random() * canvas.width) / GRID) * GRID,
+      y: Math.round((Math.random() * canvas.height) / GRID) * GRID,
       pulsePhase: Math.random() * Math.PI * 2,
     }));
 
-    const sparks: Spark[] = [];
-    const coreX = () => canvas.width / 2;
-    const coreY = () => canvas.height / 2;
-
-    const drawHexGrid = () => {
-      const size = 44;
-      const h = size * Math.sqrt(3);
-      ctx.strokeStyle = 'rgba(255, 199, 44, 0.035)';
-      ctx.lineWidth = 1;
-      for (let row = -1; row * h < canvas.height + h; row++) {
-        for (let col = -1; col * size * 1.5 < canvas.width + size; col++) {
-          const cx = col * size * 1.5;
-          const cy = row * h + (col % 2 === 0 ? 0 : h / 2);
-          ctx.beginPath();
-          for (let i = 0; i < 6; i++) {
-            const angle = (Math.PI / 3) * i;
-            const px = cx + size * Math.cos(angle);
-            const py = cy + size * Math.sin(angle);
-            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-          }
-          ctx.closePath();
-          ctx.stroke();
-        }
-      }
+    // Right-angled circuit traces connecting a handful of via pairs,
+    // like signal paths on a board. Built once at load.
+    const buildTrace = (): Trace => {
+      const a = vias[Math.floor(Math.random() * vias.length)];
+      const b = vias[Math.floor(Math.random() * vias.length)];
+      const midX = b.x;
+      const midY = a.y;
+      return {
+        points: [
+          { x: a.x, y: a.y },
+          { x: midX, y: midY },
+          { x: b.x, y: b.y },
+        ],
+        progress: 0,
+        speed: 0.006 + Math.random() * 0.004,
+      };
     };
 
-    // simple line-art hexapod, drawn with strokes, gently idling
-    const drawHexapod = (x: number, y: number, scale: number, bob: number) => {
-      ctx.save();
-      ctx.translate(x, y + bob);
-      ctx.scale(scale, scale);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-      ctx.lineWidth = 1.5;
-      // body
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 22, 12, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // legs (3 per side, slight animated splay)
-      for (let side = -1; side <= 1; side += 2) {
-        for (let i = -1; i <= 1; i++) {
-          const legSwing = Math.sin(frame * 0.05 + i) * 4;
+    const activeTraces: Trace[] = [];
+
+    const drawGrid = () => {
+      const spotlightRadius = 380;
+      ctx.lineWidth = 1;
+
+      ctx.strokeStyle = 'rgba(120, 140, 160, 0.05)';
+      for (let x = 0; x < canvas.width; x += GRID) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += GRID) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // brighten grid lines locally near the cursor, no bloom — just
+      // a firmer stroke, like light catching a brushed metal panel
+      const nearX = Math.round(mouseX / GRID) * GRID;
+      const nearY = Math.round(mouseY / GRID) * GRID;
+      for (let gx = nearX - spotlightRadius; gx <= nearX + spotlightRadius; gx += GRID) {
+        for (let gy = nearY - spotlightRadius; gy <= nearY + spotlightRadius; gy += GRID) {
+          const dist = Math.hypot(gx - mouseX, gy - mouseY);
+          const proximity = Math.max(0, 1 - dist / spotlightRadius);
+          if (proximity <= 0) continue;
+          const opacity = proximity * 0.16;
+          ctx.strokeStyle = `rgba(150, 175, 195, ${opacity})`;
           ctx.beginPath();
-          ctx.moveTo(i * 14, 0);
-          ctx.lineTo(i * 14 + side * (26 + legSwing), side * 22);
-          ctx.moveTo(i * 14 + side * (26 + legSwing), side * 22);
-          ctx.lineTo(i * 14 + side * (34 + legSwing), side * 34);
+          ctx.moveTo(gx - GRID / 2, gy);
+          ctx.lineTo(gx + GRID / 2, gy);
+          ctx.moveTo(gx, gy - GRID / 2);
+          ctx.lineTo(gx, gy + GRID / 2);
           ctx.stroke();
         }
       }
-      ctx.restore();
     };
 
     const draw = () => {
       frame++;
-      ctx.fillStyle = '#0a0b0e';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      drawHexGrid();
 
-      // static faint links from nodes to core
-      ctx.strokeStyle = 'rgba(216, 90, 48, 0.06)';
+      mouseX += (targetMouseX - mouseX) * 0.05;
+      mouseY += (targetMouseY - mouseY) * 0.05;
+
+      ctx.fillStyle = '#08090b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawGrid();
+
+      // static faint traces between vias
+      ctx.strokeStyle = 'rgba(110, 130, 150, 0.06)';
       ctx.lineWidth = 1;
-      nodes.forEach((n) => {
+      vias.forEach((v, i) => {
+        const next = vias[(i + 3) % vias.length];
         ctx.beginPath();
-        ctx.moveTo(n.x, n.y);
-        ctx.lineTo(coreX(), coreY());
+        ctx.moveTo(v.x, v.y);
+        ctx.lineTo(next.x, v.y);
+        ctx.lineTo(next.x, next.y);
         ctx.stroke();
       });
 
-      // fire sparks periodically
-      if (frame % 65 === 0) {
-        const n = nodes[Math.floor(Math.random() * nodes.length)];
-        sparks.push({ fromX: n.x, fromY: n.y, toX: coreX(), toY: coreY(), progress: 0, speed: 0.014 + Math.random() * 0.008 });
+      // spawn a traveling signal pulse occasionally
+      if (frame % 150 === 0) {
+        activeTraces.push(buildTrace());
       }
-      for (let i = sparks.length - 1; i >= 0; i--) {
-        const s = sparks[i];
-        s.progress += s.speed;
-        const x = s.fromX + (s.toX - s.fromX) * s.progress;
-        const y = s.fromY + (s.toY - s.fromY) * s.progress;
+      for (let i = activeTraces.length - 1; i >= 0; i--) {
+        const t = activeTraces[i];
+        t.progress += t.speed;
+        const segCount = t.points.length - 1;
+        const segProgress = t.progress * segCount;
+        const segIdx = Math.min(Math.floor(segProgress), segCount - 1);
+        const localT = segProgress - segIdx;
+        const p0 = t.points[segIdx];
+        const p1 = t.points[segIdx + 1];
+        const x = p0.x + (p1.x - p0.x) * localT;
+        const y = p0.y + (p1.y - p0.y) * localT;
+
         ctx.beginPath();
-        ctx.arc(x, y, 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 199, 44, 0.85)';
+        ctx.arc(x, y, 1.8, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(160, 190, 210, 0.7)';
         ctx.fill();
-        if (s.progress >= 1) sparks.splice(i, 1);
+
+        if (t.progress >= 1) activeTraces.splice(i, 1);
       }
 
-      // pulsing document nodes
-      nodes.forEach((n) => {
-        const pulse = 0.5 + 0.5 * Math.sin(frame * 0.02 + n.pulsePhase);
+      // via points — quiet pulse, no glow/shadow blur
+      vias.forEach((v) => {
+        const pulse = 0.5 + 0.5 * Math.sin(frame * 0.012 + v.pulsePhase);
         ctx.beginPath();
-        ctx.arc(n.x, n.y, 1.8 + pulse, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(216, 90, 48, ${0.25 + pulse * 0.3})`;
+        ctx.arc(v.x, v.y, 1.6 + pulse * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(140, 165, 185, ${0.15 + pulse * 0.1})`;
         ctx.fill();
+        ctx.strokeStyle = `rgba(140, 165, 185, ${0.2 + pulse * 0.1})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
       });
-
-      // core glow
-      const corePulse = 0.6 + 0.4 * Math.sin(frame * 0.025);
-      const grad = ctx.createRadialGradient(coreX(), coreY(), 0, coreX(), coreY(), 28 * corePulse);
-      grad.addColorStop(0, 'rgba(255, 199, 44, 0.35)');
-      grad.addColorStop(1, 'rgba(255, 199, 44, 0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(coreX(), coreY(), 28 * corePulse, 0, Math.PI * 2);
-      ctx.fill();
-
-      // telemetry markers with blinking status dot
-      ctx.font = '10px monospace';
-      markers.forEach((m) => {
-        const blink = 0.4 + 0.6 * Math.sin(frame * 0.03 + m.blinkPhase);
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(216, 90, 48, ${blink})`;
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.fillText(m.label, m.x + 8, m.y + 3);
-      });
-
-      // idle hexapod bots, gently bobbing, off to the sides
-      drawHexapod(canvas.width * 0.15, canvas.height * 0.62, 1, Math.sin(frame * 0.02) * 3);
-      drawHexapod(canvas.width * 0.85, canvas.height * 0.7, 0.7, Math.sin(frame * 0.02 + 1.5) * 3);
 
       animId = requestAnimationFrame(draw);
     };
@@ -185,13 +174,14 @@ export function LiveRagBackground() {
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', resize);
+      window.removeEventListener('mousemove', onMouseMove);
     };
   }, []);
 
   return (
     <canvas
       ref={canvasRef}
-      style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}
     />
   );
 }

@@ -97,9 +97,83 @@
   100% { opacity: 0.45; transform: scale(1.05); }
 }
 
-/* Hexapod cursor suppression when active */
-.hexapod-cursor-enabled,
-.hexapod-cursor-enabled * {
+/* Hexapod cursor suppression when active — but allow native text cursor over selectable text */
+.hexapod-cursor-enabled, .hexapod-cursor-enabled * {
   cursor: none !important;
 }
+.hexapod-cursor-enabled .copyable-text,
+.hexapod-cursor-enabled .copyable-text * {
+  cursor: text !important;
+  user-select: text !important;
+}
 
+/* Global font */
+* {
+  font-family: 'Baskerville Old Face', Baskerville, Georgia, 'Times New Roman', serif !important;
+}
+
+/*
+  Only the base page canvas is forced here (not every div/section/etc).
+  Forcing every element to an opaque background was hiding the animated
+  LiveRagBackground canvas behind solid black panels. Individual components
+  keep their own Tailwind background classes (many already use translucent
+  rgba/opacity values so the animated backdrop shows through).
+*/
+html, body, #root {
+  background-color: #000000;
+  color: #ffffff;
+}
+
+::placeholder {
+  color: #999999 !important;
+}
+
+/* Keep the logo image itself untouched */
+img {
+  filter: none !important;
+  background-color: transparent !important;
+}
+
+/* ---------- Theme: dark (default) ---------- */
+.theme-dark {
+  background-color: #000000;
+  color: #ffffff;
+}
+.theme-dark button:hover {
+  background-color: #1a1a1a;
+}
+
+/* ---------- Theme: light ---------- */
+.theme-light {
+  background-color: #f5f5f5 !important;
+  color: #111111 !important;
+}
+.theme-light * {
+  color: #111111;
+}
+.theme-light button:hover {
+  background-color: #e5e5e5 !important;
+}
+.theme-light aside,
+.theme-light main,
+.theme-light header,
+.theme-light nav,
+.theme-light .bg-\[\#000000\],
+.theme-light .bg-\[\#1F1F1F\],
+.theme-light .bg-\[\#12141c\]\/95,
+.theme-light .bg-\[\#111218\]\/90,
+.theme-light .bg-\[\#13151d\]\/95,
+.theme-light .bg-\[\#1a1a1a\] {
+  background-color: #ffffff !important;
+  color: #111111 !important;
+}
+
+.theme-light .from-\[\#000000\],
+.theme-light .via-\[\#000000\]\/95 {
+  --tw-gradient-from: #ffffff !important;
+  --tw-gradient-via: #ffffff !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important;
+}
+.theme-light ::placeholder {
+  color: #666666 !important;
+}

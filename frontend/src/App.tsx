@@ -35,11 +35,15 @@ export default function App() {
 
   const [historyItems, setHistoryItems] = useState<QueryHistoryItem[]>([]);
   const currentChatIdRef = useRef<string | null>(null);
+  // Guards against double-submit (e.g. Enter + click firing almost
+  // simultaneously). A ref updates synchronously, unlike state, so the
+  // second call sees the block immediately instead of a stale isLoading.
+  const isSendingRef = useRef(false);
 
   const [visualSettings, setVisualSettings] = useState<VisualSettings>({
     palette: 'maroon-gold',
-    hexapodCursorEnabled: true,
-    scanlineEnabled: true,
+    cursorType: 'bot',
+    theme: 'dark',
   });
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -72,7 +76,8 @@ export default function App() {
 
   const runQuery = async (queryText: string) => {
     const trimmed = queryText.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || isSendingRef.current) return;
+    isSendingRef.current = true;
 
     setErrorMessage(null);
     setRagState('search');
@@ -95,44 +100,54 @@ export default function App() {
         query: trimmed,
         answer: data.answer,
         sources: Array.isArray(data.sources) ? data.sources : [],
+        animate: true,
       };
 
-      const isFirstMessageOfChat = conversation.length === 0;
+      // Functional update: always builds on the true latest conversation
+      // state rather than a possibly-stale closure variable, so a second
+      // overlapping call can never silently overwrite the first turn.
+      setConversation((prevConversation) => {
+        const isFirstMessageOfChat = prevConversation.length === 0;
+        const updatedConversation = [...prevConversation, newTurn];
 
-      setConversation((prev) => [...prev, newTurn]);
+        if (isFirstMessageOfChat) {
+          const chatId = `chat-${Date.now()}`;
+          currentChatIdRef.current = chatId;
+          const newItem: QueryHistoryItem = {
+            id: chatId,
+            title: trimmed.length > 42 ? trimmed.slice(0, 42) + '...' : trimmed,
+            turns: updatedConversation,
+            dateGroup: 'Today',
+          };
+          setHistoryItems((prev: QueryHistoryItem[]) => [newItem, ...prev].slice(0, 8));
+          setSelectedHistoryId(chatId);
+        } else if (currentChatIdRef.current) {
+          const chatId = currentChatIdRef.current;
+          setHistoryItems((prev: QueryHistoryItem[]) =>
+            prev.map((h) => (h.id === chatId ? { ...h, turns: updatedConversation } : h))
+          );
+        }
+
+        return updatedConversation;
+      });
+
       setRagState('response');
       setInputQuery('');
-
-      if (isFirstMessageOfChat) {
-        const chatId = `chat-${Date.now()}`;
-        currentChatIdRef.current = chatId;
-        const newItem: QueryHistoryItem = {
-          id: chatId,
-          title: trimmed.length > 42 ? trimmed.slice(0, 42) + '...' : trimmed,
-          query: trimmed,
-          responseData: { answer: data.answer, sources: newTurn.sources },
-          dateGroup: 'Today',
-        };
-        setHistoryItems((prev: QueryHistoryItem[]) => [newItem, ...prev].slice(0, 8));
-        setSelectedHistoryId(chatId);
-      }
     } catch (err) {
       setErrorMessage("Couldn't reach the assistant just now. Try again in a moment.");
       setRagState(conversation.length > 0 ? 'response' : 'idle');
       showToast('Something went wrong');
     } finally {
       setIsLoading(false);
+      isSendingRef.current = false;
     }
   };
 
   const handleSelectQuery = (item: QueryHistoryItem) => {
     setSelectedHistoryId(item.id);
     currentChatIdRef.current = item.id;
-    setInputQuery(item.query);
-    setConversation((prev) => [
-      ...prev,
-      { id: item.id, query: item.query, answer: item.responseData.answer, sources: item.responseData.sources },
-    ]);
+    setInputQuery('');
+    setConversation(item.turns.map((t) => ({ ...t, animate: false })));
     setRagState('response');
   };
 
@@ -155,14 +170,34 @@ export default function App() {
     showToast('New chat started');
   };
 
+  const handleDeleteHistoryItem = (id: string) => {
+    setHistoryItems((prev) => prev.filter((item) => item.id !== id));
+    if (selectedHistoryId === id) {
+      handleResetWorkspace();
+    }
+    showToast('Chat deleted');
+  };
+
+  const handleShareHistoryItem = async (item: QueryHistoryItem) => {
+    const shareText = item.turns
+      .map((t) => `Q: ${t.query}\n\nA: ${t.answer}`)
+      .join('\n\n---\n\n');
+    try {
+      await navigator.clipboard.writeText(shareText);
+      showToast('Copied to clipboard');
+    } catch (err) {
+      showToast("Couldn't copy — try again");
+    }
+  };
+
   return (
     <div
-      className={`h-full flex flex-col antialiased select-none text-slate-200 bg-[#0a0b0e] relative overflow-hidden ${
-        visualSettings.hexapodCursorEnabled ? 'hexapod-cursor-enabled' : ''
-      }`}
+      className={`h-full flex flex-col antialiased text-[#EDEDED] bg-[#000000] relative overflow-hidden ${
+        visualSettings.cursorType === 'bot' ? 'hexapod-cursor-enabled' : ''
+      } ${visualSettings.theme === 'light' ? 'theme-light' : 'theme-dark'}`}
     >
       <LiveRagBackground />
-      <HexapodCursorLayer enabled={visualSettings.hexapodCursorEnabled} />
+      <HexapodCursorLayer enabled={visualSettings.cursorType === 'bot'} theme={visualSettings.theme} />
 
       <TopHeader
         ragState={ragState}
@@ -175,6 +210,7 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden relative z-10">
         <Sidebar
+          onNewChat={handleResetWorkspace}
           isOpen={sidebarOpen}
           historyItems={historyItems}
           selectedHistoryId={selectedHistoryId}
@@ -182,6 +218,8 @@ export default function App() {
           onSelectQuery={handleSelectQuery}
           onSelectExample={(q) => { setInputQuery(q); runQuery(q); }}
           onOpenSettings={() => setVisualSettingsOpen(true)}
+          onDeleteQuery={handleDeleteHistoryItem}
+          onShareQuery={handleShareHistoryItem}
           onFocusInput={() => {
             const input = document.getElementById('user-chat-input');
             if (input) { input.focus(); showToast('Query box active'); }
@@ -219,9 +257,9 @@ export default function App() {
       {toastMessage && (
         <div
           id="app-toast"
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-full bg-[#13141d] border border-maroon-800/80 text-white text-xs shadow-2xl z-50 flex items-center gap-2 animate-fadeIn font-mono"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-full bg-[#000000] text-[#EDEDED] text-xs shadow-2xl z-50 flex items-center gap-2 animate-fadeIn font-mono"
         >
-          <CheckCircle2 className="w-4 h-4 text-[#ffc72c]" />
+          <CheckCircle2 className="w-4 h-4 text-[#FFFFFF]" />
           <span>{toastMessage}</span>
         </div>
       )}
