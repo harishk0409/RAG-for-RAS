@@ -101,8 +101,8 @@
 .hexapod-cursor-enabled, .hexapod-cursor-enabled * {
   cursor: none !important;
 }
-.hexapod-cursor-enabled .copyable-text,
-.hexapod-cursor-enabled .copyable-text * {
+.copyable-text,
+.copyable-text * {
   cursor: text !important;
   user-select: text !important;
 }

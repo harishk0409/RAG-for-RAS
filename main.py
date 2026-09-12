@@ -19,8 +19,7 @@ Deploy (Render / Railway, free tier):
     4. Add GROQ_API_KEY as an environment variable in the host's dashboard
     5. You'll get a public URL like https://your-app.onrender.com
 """
-import json
-import secrets
+
 import os
 import re
 from fastapi import FastAPI
@@ -39,7 +38,7 @@ LLM_MODEL = "openai/gpt-oss-20b"
 TOP_K = 8
 CHAPTER_NAME = "IEEE RAS VIT Chennai"
 CHAPTER_URL = "https://edu.ieee.org/in-rasvitcc/"
-SHARES_FILE = "shares.json"
+
 app = FastAPI(title="RAG for RAS API")
 
 app.add_middleware(
@@ -50,9 +49,11 @@ app.add_middleware(
 )
 
 # ---------- LOAD RESOURCES ONCE AT STARTUP ----------
-embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
+# ChromaDB's built-in ONNX MiniLM embedding function — only depends on
+# onnxruntime (already a chromadb dependency), avoiding torch/transformers/
+# sentence-transformers entirely to keep memory usage low enough for
+# free-tier hosts like Render's 512MB instances.
+embed_fn = embedding_functions.DefaultEmbeddingFunction()
 chroma_client = chromadb.PersistentClient(path=DB_DIR)
 collection = chroma_client.get_collection(name=COLLECTION_NAME, embedding_function=embed_fn)
 
@@ -122,41 +123,7 @@ def chat(req: ChatRequest):
     chunks, sources = retrieve_context(req.message)
     answer = generate_answer(req.message, chunks)
     return ChatResponse(answer=answer, sources=sources)
-def load_shares():
-    if os.path.exists(SHARES_FILE):
-        with open(SHARES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
 
-
-def save_shares(shares):
-    with open(SHARES_FILE, "w", encoding="utf-8") as f:
-        json.dump(shares, f)
-
-
-class ShareRequest(BaseModel):
-    turns: list[dict]
-
-
-class ShareResponse(BaseModel):
-    id: str
-
-
-@app.post("/api/share", response_model=ShareResponse)
-def create_share(req: ShareRequest):
-    shares = load_shares()
-    share_id = secrets.token_urlsafe(8)
-    shares[share_id] = req.turns
-    save_shares(shares)
-    return ShareResponse(id=share_id)
-
-
-@app.get("/api/share/{share_id}")
-def get_share(share_id: str):
-    shares = load_shares()
-    if share_id not in shares:
-        return {"error": "not found"}
-    return {"turns": shares[share_id]}
 
 # ---------- Serve the frontend ----------
 # Place your built index.html (+ any assets) inside a "static" folder next to this file.

@@ -68,10 +68,12 @@ def main():
         print("No documents found! Add .txt or .md files to the data/ folder first.")
         return
 
-    print("Setting up embedding function (all-MiniLM-L6-v2, runs locally)...")
-    embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"
-    )
+    print("Setting up embedding function (ChromaDB's built-in ONNX MiniLM, no torch needed)...")
+    # ChromaDB ships its own lightweight ONNX-based MiniLM embedding function.
+    # It only depends on onnxruntime (already a chromadb dependency), not
+    # torch/transformers/sentence-transformers — this keeps memory usage low
+    # enough to run on free-tier hosts like Render's 512MB instances.
+    embed_fn = embedding_functions.DefaultEmbeddingFunction()
 
     print("Initializing ChromaDB...")
     client = chromadb.PersistentClient(path=DB_DIR)
