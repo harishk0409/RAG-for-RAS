@@ -20,28 +20,41 @@ CHUNK_OVERLAP = 150    # overlap between chunks
 
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
-    """Simple sliding-window character chunker that tries to break on paragraph/sentence boundaries."""
-    chunks = []
-    start = 0
+    """Paragraph-aware chunker — never splits mid-word or mid-sentence."""
     text = text.strip()
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end]
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
 
-        # try to end on a paragraph or sentence boundary if not at the very end
-        if end < len(text):
-            last_break = max(chunk.rfind("\n\n"), chunk.rfind(". "))
-            if last_break > chunk_size * 0.5:  # only trim if it's not too short
-                chunk = chunk[:last_break + 1]
+    chunks = []
+    current = ""
 
-        chunk = chunk.strip()
-        if chunk:
-            chunks.append(chunk)
+    for para in paragraphs:
+        if len(current) + len(para) + 2 <= chunk_size:
+            current = f"{current}\n\n{para}" if current else para
+        else:
+            if current:
+                chunks.append(current.strip())
+            if len(para) > chunk_size:
+                # Paragraph itself is too long — split on sentences instead
+                sentences = para.replace("\n", " ").split(". ")
+                current = ""
+                for sent in sentences:
+                    sent = sent.strip()
+                    if not sent:
+                        continue
+                    candidate = f"{current} {sent}." if current else f"{sent}."
+                    if len(candidate) <= chunk_size:
+                        current = candidate
+                    else:
+                        if current:
+                            chunks.append(current.strip())
+                        current = f"{sent}."
+            else:
+                current = para
 
-        start += max(len(chunk) - overlap, 1)
+    if current:
+        chunks.append(current.strip())
 
     return chunks
-
 
 def load_documents():
     docs = []
